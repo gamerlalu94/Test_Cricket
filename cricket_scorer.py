@@ -205,8 +205,18 @@ def play_ball(match):
     over_display = " | ".join(f"|{b}|" for b in match.current_over_balls) if match.current_over_balls else "| | | | | |"
     print(f"Over: {over_display}")
 
-    # Ensure the variable exists even if no new batsman is selected (e.g., all out)
-    new_batsman = None
+    # Batter stats
+    if match.current_striker:
+        print(f"Striker: {match.current_striker.name} ({match.current_striker.runs} runs, {match.current_striker.balls_faced} balls)")
+    if match.current_non_striker:
+        print(f"Non-striker: {match.current_non_striker.name} ({match.current_non_striker.runs} runs, {match.current_non_striker.balls_faced} balls)")
+
+    # Bowler stats
+    if match.current_bowler:
+        wickets = match.current_bowler.wickets
+        runs_conceded = match.current_bowler.runs_conceded
+        balls_bowled = match.current_bowler.overs_bowled * 6
+        print(f"Bowler: {match.current_bowler.name} ({wickets} wickets, {runs_conceded} runs conceded, {balls_bowled} balls)")
 
     option = input("Enter option (Run/Dot/Wicket/Wide/No ball/Rollback/Declare): ").strip().capitalize()
     while option not in ['Run', 'Dot', 'Wicket', 'Wide', 'No ball', 'Rollback', 'Declare']:
@@ -224,9 +234,8 @@ def play_ball(match):
             match.current_striker.runs += runs
             match.current_striker.balls_faced += 1
         if run_type == '1':
-            pass  # No swap for 1 run
             # Swap striker and non-striker
-            # match.current_striker, match.current_non_striker = match.current_non_striker, match.current_striker
+            match.current_striker, match.current_non_striker = match.current_non_striker, match.current_striker
         if match.current_bowler:
             match.current_bowler.runs_conceded += runs
         match.match_log.append(f"Ball {match.current_over+1}.{match.current_ball+1}: {run_type} run(s)")
@@ -353,6 +362,11 @@ def play_ball(match):
             if match.current_ball < 0:
                 match.current_ball = 5
                 match.current_over -= 1
+                # Undo over end effects
+                match.current_striker, match.current_non_striker = match.current_non_striker, match.current_striker
+                team.overs -= 1
+                if match.current_bowler:
+                    match.current_bowler.overs_bowled -= 1
         if match.last_delta['log_entry'] and match.match_log:
             match.match_log.pop()
         if match.last_delta['swap']:
@@ -371,6 +385,9 @@ def play_ball(match):
             match.current_ball = 0
             match.current_over += 1
             match.current_over_balls = []
+            # Swap striker and non-striker at end of over
+            match.current_striker, match.current_non_striker = match.current_non_striker, match.current_striker
+            team.overs += 1
             if match.current_bowler:
                 match.current_bowler.overs_bowled += 1
 
@@ -426,12 +443,6 @@ def play_ball(match):
         if comment:
             match.match_log.append(f"Comment: {comment}")
         # Don't increment ball, re-bowl
-    if match.current_ball == 6:
-        match.current_ball = 0
-        match.current_over += 1
-        team.overs += 1
-        if match.current_bowler:
-            match.current_bowler.overs_bowled += 1
 
 
 def handle_test_series(match):
@@ -514,7 +525,7 @@ def handle_test_series(match):
         return True
     else:
         match.continuation_level += 1
-        new_target = lead + 30
+        new_target = lead + 1
         print(f"{batting.name} must now chase {new_target} to continue the match.")
 
         batting.score = 0

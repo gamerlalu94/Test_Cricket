@@ -146,26 +146,47 @@ class Match:
 def get_password():
     return getpass.getpass("Enter password: ")
 
+def find_player_by_name(players, name):
+    """Find a player by name (case-insensitive). Returns the player object or None."""
+    name_lower = name.lower()
+    for p in players:
+        if p.name.lower() == name_lower:
+            return p
+    return None
+
+def get_player_names_lower(players):
+    """Get list of player names in lowercase for validation."""
+    return [p.name.lower() for p in players]
+
 def create_new_match():
     match_type = 'Test'
-    num_players = int(input("Enter number of players per team: "))
 
     print("Team A:")
     players_a = []
-    for i in range(num_players):
-        player = input(f"Player {i+1}: ").strip()
+    player_count = 1
+    while True:
+        player = input(f"Player {player_count} (or press Enter to finish): ").strip()
+        if not player:
+            break
         players_a.append(player)
+        player_count += 1
+    
     captain_a = input("Enter captain from the players: ").strip()
-    while captain_a not in players_a:
+    while captain_a.lower() not in [p.lower() for p in players_a]:
         captain_a = input("Invalid. Enter captain from the players: ").strip()
 
     print("Team B:")
     players_b = []
-    for i in range(num_players):
-        player = input(f"Player {i+1}: ").strip()
+    player_count = 1
+    while True:
+        player = input(f"Player {player_count} (or press Enter to finish): ").strip()
+        if not player:
+            break
         players_b.append(player)
+        player_count += 1
+    
     captain_b = input("Enter captain from the players: ").strip()
-    while captain_b not in players_b:
+    while captain_b.lower() not in [p.lower() for p in players_b]:
         captain_b = input("Invalid. Enter captain from the players: ").strip()
 
     overs = None
@@ -177,21 +198,21 @@ def create_new_match():
 
     # Set initial players
     striker = input("Enter striker (batsman on strike): ").strip()
-    while striker not in players_a:
+    while striker.lower() not in [p.lower() for p in players_a]:
         striker = input("Invalid. Enter striker from Team A players: ").strip()
 
     non_striker = input("Enter non-striker (runner): ").strip()
-    while non_striker not in players_a or non_striker == striker:
+    while non_striker.lower() not in [p.lower() for p in players_a] or non_striker.lower() == striker.lower():
         non_striker = input("Invalid. Enter non-striker from Team A players, different from striker: ").strip()
 
     bowler = input("Enter bowler: ").strip()
-    while bowler not in players_b:
+    while bowler.lower() not in [p.lower() for p in players_b]:
         bowler = input("Invalid. Enter bowler from Team B players: ").strip()
 
     match = Match(match_type, team_a, team_b)
-    match.current_striker = next(p for p in team_a.players if p.name == striker)
-    match.current_non_striker = next(p for p in team_a.players if p.name == non_striker)
-    match.current_bowler = next(p for p in team_b.players if p.name == bowler)
+    match.current_striker = find_player_by_name(team_a.players, striker)
+    match.current_non_striker = find_player_by_name(team_a.players, non_striker)
+    match.current_bowler = find_player_by_name(team_b.players, bowler)
     return match
 
 def play_ball(match):
@@ -201,7 +222,6 @@ def play_ball(match):
     bowler_name = match.current_bowler.name if match.current_bowler else 'None'
     batsman_name = match.current_striker.name if match.current_striker else 'None'
     print(f"Bowler: {bowler_name} to Batsman: {batsman_name}")
-    print(f"Timer: {time.time() - match.start_time - match.paused_time:.2f} seconds")
     over_display = " | ".join(f"|{b}|" for b in match.current_over_balls) if match.current_over_balls else "| | | | | |"
     print(f"Over: {over_display}")
 
@@ -218,9 +238,9 @@ def play_ball(match):
         balls_bowled = match.current_bowler.overs_bowled * 6
         print(f"Bowler: {match.current_bowler.name} ({wickets} wickets, {runs_conceded} runs conceded, {balls_bowled} balls)")
 
-    option = input("Enter option (Run/Dot/Wicket/Wide/No ball/Rollback/Declare): ").strip().capitalize()
-    while option not in ['Run', 'Dot', 'Wicket', 'Wide', 'No ball', 'Rollback', 'Declare']:
-        option = input("Invalid. Enter Run, Dot, Wicket, Wide, No ball, Rollback, or Declare: ").strip().capitalize()
+    option = input("Enter option (Run/Dot/Wicket/Wide/No ball/Rollback/Declare/Add player): ").strip().capitalize()
+    while option not in ['Run', 'Dot', 'Wicket', 'Wide', 'No ball', 'Rollback', 'Declare', 'Add player']:
+        option = input("Invalid. Enter Run, Dot, Wicket, Wide, No ball, Rollback, Declare, or Add player: ").strip().capitalize()
 
     if option == 'Run':
         run_type = input("Enter run type (1/4/Bye): ").strip()
@@ -282,9 +302,9 @@ def play_ball(match):
         if available_batsmen:
             print(f"Available batsmen: {', '.join(available_batsmen)}")
             new_batsman = input("Enter new batsman: ").strip()
-            while new_batsman not in available_batsmen:
+            while new_batsman.lower() not in [p.lower() for p in available_batsmen]:
                 new_batsman = input("Invalid. Enter new batsman from available: ").strip()
-            match.current_striker = next(p for p in team.players if p.name == new_batsman)
+            match.current_striker = find_player_by_name(team.players, new_batsman)
         else:
             print("No more batsmen available.")
         match.current_over_balls.append('W')
@@ -337,20 +357,34 @@ def play_ball(match):
                 p.runs = 0
                 p.balls_faced = 0
             striker = input(f"Enter striker for second innings (from {bowling.name}): ").strip()
-            while striker not in [p.name for p in bowling.players]:
+            while striker.lower() not in [p.lower() for p in [p.name for p in bowling.players]]:
                 striker = input(f"Invalid. Enter striker from {bowling.name} players: ").strip()
             non_striker = input(f"Enter non-striker for second innings (from {bowling.name}): ").strip()
-            while non_striker not in [p.name for p in bowling.players] or non_striker == striker:
+            while non_striker.lower() not in [p.lower() for p in [p.name for p in bowling.players]] or non_striker.lower() == striker.lower():
                 non_striker = input(f"Invalid. Enter non-striker from {bowling.name} players, different from striker: ").strip()
             bowler = input(f"Enter bowler for second innings (from {team.name}): ").strip()
-            while bowler not in [p.name for p in team.players]:
+            while bowler.lower() not in [p.lower() for p in [p.name for p in team.players]]:
                 bowler = input(f"Invalid. Enter bowler from {team.name} players: ").strip()
-            match.current_striker = next(p for p in bowling.players if p.name == striker)
-            match.current_non_striker = next(p for p in bowling.players if p.name == non_striker)
-            match.current_bowler = next(p for p in team.players if p.name == bowler)
+            match.current_striker = find_player_by_name(bowling.players, striker)
+            match.current_non_striker = find_player_by_name(bowling.players, non_striker)
+            match.current_bowler = find_player_by_name(team.players, bowler)
         else:
             print("Cannot declare unless in first innings with no wickets fallen.")
             # Don't increment ball or anything
+
+    elif option == 'Add player':
+        team_choice = input("Which team to add player to (A/B): ").strip().upper()
+        while team_choice not in ['A', 'B']:
+            team_choice = input("Invalid. Enter A or B: ").strip().upper()
+        
+        target_team = match.team_a if team_choice == 'A' else match.team_b
+        new_player_name = input(f"Enter new player name for {target_team.name}: ").strip()
+        while new_player_name in [p.name for p in target_team.players]:
+            new_player_name = input(f"Player already exists. Enter a different name: ").strip()
+        
+        new_player = Player(new_player_name)
+        target_team.players.append(new_player)
+        print(f"Player '{new_player_name}' added to {target_team.name}.")
 
     elif option == 'Rollback':
         team.score -= match.last_delta['runs']
@@ -379,7 +413,7 @@ def play_ball(match):
         match.last_delta = {'runs': 0, 'wickets': 0, 'over_ball': None, 'ball_incremented': False, 'log_entry': None, 'swap': False, 'new_striker': None, 'old_striker': None, 'bowler_wickets': 0}
         # Don't increment for rollback
 
-    if option not in ['Wide', 'No ball', 'Rollback', 'Declare']:
+    if option not in ['Wide', 'No ball', 'Rollback', 'Declare', 'Add player']:
         match.current_ball += 1
         if match.current_ball == 6:
             match.current_ball = 0
@@ -390,8 +424,15 @@ def play_ball(match):
             team.overs += 1
             if match.current_bowler:
                 match.current_bowler.overs_bowled += 1
+            
+            # Automatically change bowler after every over
+            bowling_team = match.get_opposite_team()
+            bowler = input(f"Enter new bowler (from {bowling_team.name}): ").strip()
+            while bowler.lower() not in [p.lower() for p in [p.name for p in bowling_team.players]]:
+                bowler = input(f"Invalid. Enter bowler from {bowling_team.name} players: ").strip()
+            match.current_bowler = find_player_by_name(bowling_team.players, bowler)
 
-    if option != 'Rollback':
+    if option not in ['Rollback', 'Add player']:
         # set last_delta
         last_delta = {'runs': 0, 'wickets': 0, 'over_ball': None, 'ball_incremented': False, 'log_entry': None, 'swap': False, 'new_striker': None, 'old_striker': None, 'bowler_wickets': 0}
         if option == 'Run':
@@ -485,18 +526,18 @@ def handle_test_series(match):
             p.balls_faced = 0
 
         striker = input(f"Enter striker for second innings (from {bowling.name}): ").strip()
-        while striker not in [p.name for p in bowling.players]:
+        while striker.lower() not in [p.lower() for p in [p.name for p in bowling.players]]:
             striker = input(f"Invalid. Enter striker from {bowling.name} players: ").strip()
         non_striker = input(f"Enter non-striker for second innings (from {bowling.name}): ").strip()
-        while non_striker not in [p.name for p in bowling.players] or non_striker == striker:
+        while non_striker.lower() not in [p.lower() for p in [p.name for p in bowling.players]] or non_striker.lower() == striker.lower():
             non_striker = input(f"Invalid. Enter non-striker from {bowling.name} players, different from striker: ").strip()
         bowler = input(f"Enter bowler for second innings (from {batting.name}): ").strip()
-        while bowler not in [p.name for p in batting.players]:
+        while bowler.lower() not in [p.lower() for p in [p.name for p in batting.players]]:
             bowler = input(f"Invalid. Enter bowler from {batting.name} players: ").strip()
 
-        match.current_striker = next(p for p in bowling.players if p.name == striker)
-        match.current_non_striker = next(p for p in bowling.players if p.name == non_striker)
-        match.current_bowler = next(p for p in batting.players if p.name == bowler)
+        match.current_striker = find_player_by_name(bowling.players, striker)
+        match.current_non_striker = find_player_by_name(bowling.players, non_striker)
+        match.current_bowler = find_player_by_name(batting.players, bowler)
         return False
 
     # Second (or later) innings complete
@@ -543,18 +584,18 @@ def handle_test_series(match):
         match.current_over_balls = []
 
         striker = input(f"Enter striker for the new chase (from {batting.name}): ").strip()
-        while striker not in [p.name for p in batting.players]:
+        while striker.lower() not in [p.lower() for p in [p.name for p in batting.players]]:
             striker = input(f"Invalid. Enter striker from {batting.name} players: ").strip()
         non_striker = input(f"Enter non-striker for the new chase (from {batting.name}): ").strip()
-        while non_striker not in [p.name for p in batting.players] or non_striker == striker:
+        while non_striker.lower() not in [p.lower() for p in [p.name for p in batting.players]] or non_striker.lower() == striker.lower():
             non_striker = input(f"Invalid. Enter non-striker from {batting.name} players, different from striker: ").strip()
         bowler = input(f"Enter bowler for the new chase (from {bowling.name}): ").strip()
-        while bowler not in [p.name for p in bowling.players]:
+        while bowler.lower() not in [p.lower() for p in [p.name for p in bowling.players]]:
             bowler = input(f"Invalid. Enter bowler from {bowling.name} players: ").strip()
 
-        match.current_striker = next(p for p in batting.players if p.name == striker)
-        match.current_non_striker = next(p for p in batting.players if p.name == non_striker)
-        match.current_bowler = next(p for p in bowling.players if p.name == bowler)
+        match.current_striker = find_player_by_name(batting.players, striker)
+        match.current_non_striker = find_player_by_name(batting.players, non_striker)
+        match.current_bowler = find_player_by_name(bowling.players, bowler)
         return False
 
 

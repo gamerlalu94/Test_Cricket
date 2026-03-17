@@ -42,7 +42,21 @@ class Match:
         self.target = None
         self.series = {self.team_a.name: 0, self.team_b.name: 0}
         self.continuation_level = 0
-        self.last_delta = {'runs': 0, 'wickets': 0, 'over_ball': None, 'ball_incremented': False, 'log_entry': None, 'swap': False, 'new_striker': None, 'old_striker': None, 'bowler_wickets': 0}
+        self.last_delta = {
+            'runs': 0,
+            'wickets': 0,
+            'over_ball': None,
+            'ball_incremented': False,
+            'log_entry': None,
+            'swap': False,
+            'over_swap': False,
+            'new_striker': None,
+            'old_striker': None,
+            'old_striker_was_out': False,
+            'old_non_striker': None,
+            'old_bowler': None,
+            'bowler_wickets': 0
+        }
 
     def get_current_team(self):
         return self.team_a if self.current_innings == 0 else self.team_b
@@ -135,7 +149,21 @@ class Match:
         match.current_non_striker = next((p for p in (team_a.players if match.current_innings == 0 else team_b.players) if p.name == data['current_non_striker']), None) if data['current_non_striker'] else None
         match.current_over_balls = data.get('current_over_balls', [])
         match.match_log = data['match_log']
-        match.last_delta = data.get('last_delta', {'runs': 0, 'wickets': 0, 'over_ball': None, 'ball_incremented': False, 'log_entry': None, 'swap': False, 'new_striker': None, 'old_striker': None, 'bowler_wickets': 0})
+        match.last_delta = data.get('last_delta', {
+            'runs': 0,
+            'wickets': 0,
+            'over_ball': None,
+            'ball_incremented': False,
+            'log_entry': None,
+            'swap': False,
+            'over_swap': False,
+            'new_striker': None,
+            'old_striker': None,
+            'old_striker_was_out': False,
+            'old_non_striker': None,
+            'old_bowler': None,
+            'bowler_wickets': 0
+        })
         match.start_time = data['start_time']
         match.paused_time = data['paused_time']
         match.target = data.get('target', None)
@@ -157,6 +185,11 @@ def find_player_by_name(players, name):
 def get_player_names_lower(players):
     """Get list of player names in lowercase for validation."""
     return [p.name.lower() for p in players]
+
+def print_team_players(team, role="players"):
+    """Print a list of team players for selection prompts."""
+    print(f"{team.name} {role}: {', '.join(p.name for p in team.players)}")
+
 
 def create_new_match():
     match_type = 'Test'
@@ -205,8 +238,10 @@ def create_new_match():
     while non_striker.lower() not in [p.lower() for p in players_a] or non_striker.lower() == striker.lower():
         non_striker = input("Invalid. Enter non-striker from Team A players, different from striker: ").strip()
 
+    print(f"Available bowlers: {', '.join(players_b)}")
     bowler = input("Enter bowler: ").strip()
     while bowler.lower() not in [p.lower() for p in players_b]:
+        print(f"Available bowlers: {', '.join(players_b)}")
         bowler = input("Invalid. Enter bowler from Team B players: ").strip()
 
     match = Match(match_type, team_a, team_b)
@@ -217,6 +252,11 @@ def create_new_match():
 
 def play_ball(match):
     team = match.get_current_team()
+    # Track state changes so rollback can restore correctly
+    old_striker_name = None
+    old_non_striker_name = None
+    old_bowler_name = None
+    over_swap = False
     print(f"\nOver {match.current_over + 1}, Ball {match.current_ball + 1}")
     print(f"{team.name} - {team.score}/{team.wickets}")
     bowler_name = match.current_bowler.name if match.current_bowler else 'None'
@@ -306,7 +346,9 @@ def play_ball(match):
                 new_batsman = input("Invalid. Enter new batsman from available: ").strip()
             match.current_striker = find_player_by_name(team.players, new_batsman)
         else:
-            print("No more batsmen available.")
+            print("All out. Innings complete.")
+            match.current_striker = None
+            match.current_non_striker = None
         match.current_over_balls.append('W')
 
     elif option == 'Wide':
@@ -362,8 +404,10 @@ def play_ball(match):
             non_striker = input(f"Enter non-striker for second innings (from {bowling.name}): ").strip()
             while non_striker.lower() not in [p.lower() for p in [p.name for p in bowling.players]] or non_striker.lower() == striker.lower():
                 non_striker = input(f"Invalid. Enter non-striker from {bowling.name} players, different from striker: ").strip()
+            print_team_players(team, "bowlers")
             bowler = input(f"Enter bowler for second innings (from {team.name}): ").strip()
             while bowler.lower() not in [p.lower() for p in [p.name for p in team.players]]:
+                print_team_players(team, "bowlers")
                 bowler = input(f"Invalid. Enter bowler from {team.name} players: ").strip()
             match.current_striker = find_player_by_name(bowling.players, striker)
             match.current_non_striker = find_player_by_name(bowling.players, non_striker)
@@ -403,14 +447,37 @@ def play_ball(match):
                     match.current_bowler.overs_bowled -= 1
         if match.last_delta['log_entry'] and match.match_log:
             match.match_log.pop()
-        if match.last_delta['swap']:
+        if match.last_delta.get('swap'):
             match.current_striker, match.current_non_striker = match.current_non_striker, match.current_striker
-        if match.last_delta['old_striker']:
+        if match.last_delta.get('old_striker'):
             match.current_striker = next(p for p in team.players if p.name == match.last_delta['old_striker'])
-            match.current_striker.is_out = False
-        if match.current_bowler and match.last_delta['bowler_wickets']:
+            if match.last_delta.get('old_striker_was_out'):
+                match.current_striker.is_out = False
+        if match.last_delta.get('over_swap'):
+            if match.last_delta.get('old_striker'):
+                match.current_striker = next(p for p in team.players if p.name == match.last_delta['old_striker'])
+            if match.last_delta.get('old_non_striker'):
+                match.current_non_striker = next(p for p in team.players if p.name == match.last_delta['old_non_striker'])
+            if match.last_delta.get('old_bowler'):
+                all_players = match.team_a.players + match.team_b.players
+                match.current_bowler = next((p for p in all_players if p.name == match.last_delta['old_bowler']), match.current_bowler)
+        if match.current_bowler and match.last_delta.get('bowler_wickets'):
             match.current_bowler.wickets -= match.last_delta['bowler_wickets']
-        match.last_delta = {'runs': 0, 'wickets': 0, 'over_ball': None, 'ball_incremented': False, 'log_entry': None, 'swap': False, 'new_striker': None, 'old_striker': None, 'bowler_wickets': 0}
+        match.last_delta = {
+            'runs': 0,
+            'wickets': 0,
+            'over_ball': None,
+            'ball_incremented': False,
+            'log_entry': None,
+            'swap': False,
+            'over_swap': False,
+            'new_striker': None,
+            'old_striker': None,
+            'old_striker_was_out': False,
+            'old_non_striker': None,
+            'old_bowler': None,
+            'bowler_wickets': 0
+        }
         # Don't increment for rollback
 
     if option not in ['Wide', 'No ball', 'Rollback', 'Declare', 'Add player']:
@@ -419,6 +486,12 @@ def play_ball(match):
             match.current_ball = 0
             match.current_over += 1
             match.current_over_balls = []
+            # Record state for rollback
+            old_striker_name = match.current_striker.name if match.current_striker else None
+            old_non_striker_name = match.current_non_striker.name if match.current_non_striker else None
+            old_bowler_name = match.current_bowler.name if match.current_bowler else None
+            over_swap = True
+
             # Swap striker and non-striker at end of over
             match.current_striker, match.current_non_striker = match.current_non_striker, match.current_striker
             team.overs += 1
@@ -427,14 +500,35 @@ def play_ball(match):
             
             # Automatically change bowler after every over
             bowling_team = match.get_opposite_team()
+            print_team_players(bowling_team, "bowlers")
             bowler = input(f"Enter new bowler (from {bowling_team.name}): ").strip()
             while bowler.lower() not in [p.lower() for p in [p.name for p in bowling_team.players]]:
+                print_team_players(bowling_team, "bowlers")
                 bowler = input(f"Invalid. Enter bowler from {bowling_team.name} players: ").strip()
             match.current_bowler = find_player_by_name(bowling_team.players, bowler)
 
     if option not in ['Rollback', 'Add player']:
         # set last_delta
-        last_delta = {'runs': 0, 'wickets': 0, 'over_ball': None, 'ball_incremented': False, 'log_entry': None, 'swap': False, 'new_striker': None, 'old_striker': None, 'bowler_wickets': 0}
+        last_delta = {
+            'runs': 0,
+            'wickets': 0,
+            'over_ball': None,
+            'ball_incremented': False,
+            'log_entry': None,
+            'swap': False,
+            'over_swap': False,
+            'new_striker': None,
+            'old_striker': None,
+            'old_striker_was_out': False,
+            'old_non_striker': None,
+            'old_bowler': None,
+            'bowler_wickets': 0
+        }
+        if over_swap:
+            last_delta['over_swap'] = True
+            last_delta['old_striker'] = old_striker_name
+            last_delta['old_non_striker'] = old_non_striker_name
+            last_delta['old_bowler'] = old_bowler_name
         if option == 'Run':
             last_delta['runs'] = runs
             last_delta['over_ball'] = run_type
@@ -452,7 +546,10 @@ def play_ball(match):
             last_delta['over_ball'] = 'W'
             last_delta['ball_incremented'] = True
             last_delta['log_entry'] = f"Ball {match.current_over+1}.{match.current_ball+1}: Wicket ({wicket_type})"
-            last_delta['old_striker'] = match.current_striker.name
+            last_delta['old_striker'] = match.current_striker.name if match.current_striker else None
+            last_delta['old_striker_was_out'] = match.current_striker.is_out if match.current_striker else False
+            last_delta['old_non_striker'] = match.current_non_striker.name if match.current_non_striker else None
+            last_delta['old_bowler'] = match.current_bowler.name if match.current_bowler else None
             last_delta['new_striker'] = new_batsman
             last_delta['bowler_wickets'] = 1
         elif option == 'Wide':
@@ -525,14 +622,19 @@ def handle_test_series(match):
             p.runs = 0
             p.balls_faced = 0
 
+        print_team_players(bowling, "batsmen")
         striker = input(f"Enter striker for second innings (from {bowling.name}): ").strip()
         while striker.lower() not in [p.lower() for p in [p.name for p in bowling.players]]:
+            print_team_players(bowling, "batsmen")
             striker = input(f"Invalid. Enter striker from {bowling.name} players: ").strip()
         non_striker = input(f"Enter non-striker for second innings (from {bowling.name}): ").strip()
         while non_striker.lower() not in [p.lower() for p in [p.name for p in bowling.players]] or non_striker.lower() == striker.lower():
+            print_team_players(bowling, "batsmen")
             non_striker = input(f"Invalid. Enter non-striker from {bowling.name} players, different from striker: ").strip()
+        print_team_players(batting, "bowlers")
         bowler = input(f"Enter bowler for second innings (from {batting.name}): ").strip()
         while bowler.lower() not in [p.lower() for p in [p.name for p in batting.players]]:
+            print_team_players(batting, "bowlers")
             bowler = input(f"Invalid. Enter bowler from {batting.name} players: ").strip()
 
         match.current_striker = find_player_by_name(bowling.players, striker)
@@ -545,11 +647,56 @@ def handle_test_series(match):
 
     # Batting team chased successfully
     if lead < 0:
-        print(f"{batting.name} wins by {len(batting.players) - batting.wickets} wickets!")
-        match.series[batting.name] += 1
-        if match.series[batting.name] == match.series[bowling.name]:
-            print(f"{batting.name} wins the series (stumps tied).")
-        return True
+        # If this is not a continuation chase, it ends the match.
+        if match.continuation_level == 0:
+            print(f"{batting.name} wins by {len(batting.players) - batting.wickets} wickets!")
+            match.series[batting.name] += 1
+            if match.series[batting.name] == match.series[bowling.name]:
+                print(f"{batting.name} wins the series (stumps tied).")
+            return True
+
+        # Continuation chase succeeded -> swap sides and continue to next day
+        lead_runs = -lead
+        print(f"{batting.name} takes the lead by {lead_runs} runs.")
+        match.target = lead_runs + 1
+        match.current_innings = 1 - match.current_innings
+
+        # Reset the new batting side for the next continuation innings
+        batting = match.get_current_team()
+        bowling = match.get_opposite_team()
+        batting.score = 0
+        batting.wickets = 0
+        batting.overs = 0
+        batting.balls = 0
+        for p in batting.players:
+            p.is_out = False
+            p.runs = 0
+            p.balls_faced = 0
+
+        match.current_over = 0
+        match.current_ball = 0
+        match.current_over_balls = []
+
+        print(f"{bowling.name} must now chase {match.target} to continue the match.")
+        print_team_players(batting, "batsmen")
+        striker = input(f"Enter striker for the new chase (from {batting.name}): ").strip()
+        while striker.lower() not in [p.lower() for p in [p.name for p in batting.players]]:
+            print_team_players(batting, "batsmen")
+            striker = input(f"Invalid. Enter striker from {batting.name} players: ").strip()
+        non_striker = input(f"Enter non-striker for the new chase (from {batting.name}): ").strip()
+        while non_striker.lower() not in [p.lower() for p in [p.name for p in batting.players]] or non_striker.lower() == striker.lower():
+            print_team_players(batting, "batsmen")
+            non_striker = input(f"Invalid. Enter non-striker from {batting.name} players, different from striker: ").strip()
+        print_team_players(bowling, "bowlers")
+        bowler = input(f"Enter bowler for the new chase (from {bowling.name}): ").strip()
+        while bowler.lower() not in [p.lower() for p in [p.name for p in bowling.players]]:
+            print_team_players(bowling, "bowlers")
+            bowler = input(f"Invalid. Enter bowler from {bowling.name} players: ").strip()
+
+        match.current_striker = find_player_by_name(batting.players, striker)
+        match.current_non_striker = find_player_by_name(batting.players, non_striker)
+        match.current_bowler = find_player_by_name(bowling.players, bowler)
+        return False
 
     # Match tied
     if lead == 0:
@@ -583,20 +730,67 @@ def handle_test_series(match):
         match.current_ball = 0
         match.current_over_balls = []
 
+        print_team_players(batting, "batsmen")
         striker = input(f"Enter striker for the new chase (from {batting.name}): ").strip()
         while striker.lower() not in [p.lower() for p in [p.name for p in batting.players]]:
+            print_team_players(batting, "batsmen")
             striker = input(f"Invalid. Enter striker from {batting.name} players: ").strip()
         non_striker = input(f"Enter non-striker for the new chase (from {batting.name}): ").strip()
         while non_striker.lower() not in [p.lower() for p in [p.name for p in batting.players]] or non_striker.lower() == striker.lower():
+            print_team_players(batting, "batsmen")
             non_striker = input(f"Invalid. Enter non-striker from {batting.name} players, different from striker: ").strip()
+        print_team_players(bowling, "bowlers")
         bowler = input(f"Enter bowler for the new chase (from {bowling.name}): ").strip()
         while bowler.lower() not in [p.lower() for p in [p.name for p in bowling.players]]:
+            print_team_players(bowling, "bowlers")
             bowler = input(f"Invalid. Enter bowler from {bowling.name} players: ").strip()
 
         match.current_striker = find_player_by_name(batting.players, striker)
         match.current_non_striker = find_player_by_name(batting.players, non_striker)
         match.current_bowler = find_player_by_name(bowling.players, bowler)
         return False
+
+
+def reset_match_for_next_game(match):
+    """Reset match state so the series can continue with a fresh match."""
+    match.current_innings = 0
+    match.current_over = 0
+    match.current_ball = 0
+    match.current_over_balls = []
+    match.target = None
+    match.continuation_level = 0
+    match.last_delta = {
+        'runs': 0,
+        'wickets': 0,
+        'over_ball': None,
+        'ball_incremented': False,
+        'log_entry': None,
+        'swap': False,
+        'over_swap': False,
+        'new_striker': None,
+        'old_striker': None,
+        'old_striker_was_out': False,
+        'old_non_striker': None,
+        'old_bowler': None,
+        'bowler_wickets': 0
+    }
+
+    for team in [match.team_a, match.team_b]:
+        team.score = 0
+        team.wickets = 0
+        team.overs = 0
+        team.balls = 0
+        for p in team.players:
+            p.is_out = False
+            p.runs = 0
+            p.balls_faced = 0
+            p.wickets = 0
+            p.overs_bowled = 0
+            p.runs_conceded = 0
+
+    match.current_striker = None
+    match.current_non_striker = None
+    match.current_bowler = None
 
 
 def main():
@@ -616,6 +810,69 @@ def main():
 
             if handle_test_series(match):
                 match.save_state(filename, password)
+
+                # Match summary before asking what to do next
+                def _get_lead_text(m):
+                    batting = m.get_current_team()
+                    bowling = m.get_opposite_team()
+                    if m.target is None:
+                        return None
+                    # Chasing win
+                    if batting.score >= m.target:
+                        wickets_left = len(batting.players) - batting.wickets
+                        return f"{batting.name} won by {wickets_left} wickets (target {m.target})"
+                    # Tie
+                    if batting.score == m.target - 1:
+                        return "Match tied."
+                    # Bowling side won by runs
+                    runs = (m.target - 1) - batting.score
+                    return f"{bowling.name} won by {runs} runs (target {m.target})"
+
+                print("=== Match Summary ===")
+                print(f"{match.team_a.name}: {match.team_a.score}/{match.team_a.wickets}")
+                print(f"{match.team_b.name}: {match.team_b.score}/{match.team_b.wickets}")
+                lead_text = _get_lead_text(match)
+                if lead_text:
+                    print(f"Lead: {lead_text}")
+                print(f"Series: {match.team_a.name} {match.series[match.team_a.name]} - {match.series[match.team_b.name]} {match.team_b.name}")
+
+                while True:
+                    choice = input("Series complete - (C)ontinue series, (T)ie series, (E)nd match: ").strip().upper()
+                    if choice in ['C', 'T', 'E']:
+                        break
+                    print("Invalid choice. Enter C, T, or E.")
+
+                if choice == 'C':
+                    reset_match_for_next_game(match)
+
+                    # Ask initial striker/non-striker/bowler for new match
+                    print_team_players(match.team_a, "batsmen")
+                    striker = input(f"Enter striker (batsman on strike) for next match (from {match.team_a.name}): ").strip()
+                    while striker.lower() not in [p.name.lower() for p in match.team_a.players]:
+                        print_team_players(match.team_a, "batsmen")
+                        striker = input(f"Invalid. Enter striker from {match.team_a.name} players: ").strip()
+
+                    print_team_players(match.team_a, "batsmen")
+                    non_striker = input(f"Enter non-striker (runner) for next match (from {match.team_a.name}): ").strip()
+                    while non_striker.lower() not in [p.name.lower() for p in match.team_a.players] or non_striker.lower() == striker.lower():
+                        print_team_players(match.team_a, "batsmen")
+                        non_striker = input(f"Invalid. Enter non-striker from {match.team_a.name} players, different from striker: ").strip()
+
+                    print_team_players(match.team_b, "bowlers")
+                    bowler = input(f"Enter bowler for next match (from {match.team_b.name}): ").strip()
+                    while bowler.lower() not in [p.name.lower() for p in match.team_b.players]:
+                        print_team_players(match.team_b, "bowlers")
+                        bowler = input(f"Invalid. Enter bowler from {match.team_b.name} players: ").strip()
+
+                    match.current_striker = find_player_by_name(match.team_a.players, striker)
+                    match.current_non_striker = find_player_by_name(match.team_a.players, non_striker)
+                    match.current_bowler = find_player_by_name(match.team_b.players, bowler)
+                    match.start_time = time.time()
+                    match.save_state(filename, password)
+                    continue
+
+                if choice == 'T':
+                    print("Series tied.")
                 break
 
             match.save_state(filename, password)

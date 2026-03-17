@@ -186,6 +186,28 @@ def get_player_names_lower(players):
     """Get list of player names in lowercase for validation."""
     return [p.name.lower() for p in players]
 
+
+class RollbackRequested(Exception):
+    """Signal that user wants to rollback to the previous ball/state."""
+    pass
+
+
+def input_or_rollback(prompt, validate=None, allow_empty=False):
+    """Ask for input with optional validation.
+
+    Typing 'rollback' (case-insensitive) raises RollbackRequested.
+    """
+    while True:
+        val = input(prompt).strip()
+        if val.lower() == 'rollback':
+            raise RollbackRequested()
+        if allow_empty and val == '':
+            return val
+        if validate is None or validate(val):
+            return val
+        # Invalid input; prompt again.
+
+
 def print_team_players(team, role="players"):
     """Print a list of team players for selection prompts."""
     print(f"{team.name} {role}: {', '.join(p.name for p in team.players)}")
@@ -257,6 +279,57 @@ def play_ball(match):
     old_non_striker_name = None
     old_bowler_name = None
     over_swap = False
+
+    def perform_rollback():
+        """Restore match state to before the last ball was entered."""
+        team.score -= match.last_delta['runs']
+        team.wickets -= match.last_delta['wickets']
+        if match.last_delta['over_ball'] and match.current_over_balls:
+            match.current_over_balls.pop()
+        if match.last_delta['ball_incremented']:
+            match.current_ball -= 1
+            if match.current_ball < 0:
+                match.current_ball = 5
+                match.current_over -= 1
+                # Undo over end effects
+                match.current_striker, match.current_non_striker = match.current_non_striker, match.current_striker
+                team.overs -= 1
+                if match.current_bowler:
+                    match.current_bowler.overs_bowled -= 1
+        if match.last_delta['log_entry'] and match.match_log:
+            match.match_log.pop()
+        if match.last_delta.get('swap'):
+            match.current_striker, match.current_non_striker = match.current_non_striker, match.current_striker
+        if match.last_delta.get('old_striker'):
+            match.current_striker = next(p for p in team.players if p.name == match.last_delta['old_striker'])
+            if match.last_delta.get('old_striker_was_out'):
+                match.current_striker.is_out = False
+        if match.last_delta.get('over_swap'):
+            if match.last_delta.get('old_striker'):
+                match.current_striker = next(p for p in team.players if p.name == match.last_delta['old_striker'])
+            if match.last_delta.get('old_non_striker'):
+                match.current_non_striker = next(p for p in team.players if p.name == match.last_delta['old_non_striker'])
+            if match.last_delta.get('old_bowler'):
+                all_players = match.team_a.players + match.team_b.players
+                match.current_bowler = next((p for p in all_players if p.name == match.last_delta['old_bowler']), match.current_bowler)
+        if match.current_bowler and match.last_delta.get('bowler_wickets'):
+            match.current_bowler.wickets -= match.last_delta['bowler_wickets']
+        match.last_delta = {
+            'runs': 0,
+            'wickets': 0,
+            'over_ball': None,
+            'ball_incremented': False,
+            'log_entry': None,
+            'swap': False,
+            'over_swap': False,
+            'new_striker': None,
+            'old_striker': None,
+            'old_striker_was_out': False,
+            'old_non_striker': None,
+            'old_bowler': None,
+            'bowler_wickets': 0
+        }
+
     print(f"\nOver {match.current_over + 1}, Ball {match.current_ball + 1}")
     print(f"{team.name} - {team.score}/{team.wickets}")
     bowler_name = match.current_bowler.name if match.current_bowler else 'None'
@@ -278,17 +351,33 @@ def play_ball(match):
         balls_bowled = match.current_bowler.overs_bowled * 6
         print(f"Bowler: {match.current_bowler.name} ({wickets} wickets, {runs_conceded} runs conceded, {balls_bowled} balls)")
 
-    option = input("Enter option (Run/Dot/Wicket/Wide/No ball/Rollback/Declare/Add player): ").strip().capitalize()
-    while option not in ['Run', 'Dot', 'Wicket', 'Wide', 'No ball', 'Rollback', 'Declare', 'Add player']:
-        option = input("Invalid. Enter Run, Dot, Wicket, Wide, No ball, Rollback, Declare, or Add player: ").strip().capitalize()
+    try:
+        option = input_or_rollback(
+            "Enter option (Run/Dot/Wicket/Wide/No ball/Rollback/Declare/Add player): ",
+            validate=lambda v: v.strip().capitalize() in ['Run', 'Dot', 'Wicket', 'Wide', 'No ball', 'Rollback', 'Declare', 'Add player']
+        ).strip().capitalize()
+    except RollbackRequested:
+        perform_rollback()
+        return
 
     if option == 'Run':
-        run_type = input("Enter run type (1/4/Bye): ").strip()
-        while run_type not in ['1', '4', 'Bye']:
-            run_type = input("Invalid. Enter 1, 4, or Bye: ").strip()
-        runs = int(run_type) if run_type != 'Bye' else 0
-        if run_type == 'Bye':
-            runs = int(input("Enter runs for bye: "))
+        try:
+            run_type = input_or_rollback(
+                "Enter run type (1/4/Bye): ",
+                validate=lambda v: v.strip() in ['1', '4', 'Bye']
+            ).strip()
+            runs = int(run_type) if run_type != 'Bye' else 0
+            if run_type == 'Bye':
+                bye_runs = input_or_rollback(
+                    "Enter runs for bye: ",
+                    validate=lambda v: v.isdigit()
+                ).strip()
+                runs = int(bye_runs)
+            comment = input_or_rollback("Write something or press enter to cancel: ", allow_empty=True).strip()
+        except RollbackRequested:
+            perform_rollback()
+            return
+
         team.score += runs
         if match.current_striker:
             match.current_striker.runs += runs
@@ -299,38 +388,54 @@ def play_ball(match):
         if match.current_bowler:
             match.current_bowler.runs_conceded += runs
         match.match_log.append(f"Ball {match.current_over+1}.{match.current_ball+1}: {run_type} run(s)")
-        comment = input("Write something or press enter to cancel: ").strip()
         if comment:
             match.match_log.append(f"Comment: {comment}")
         match.current_over_balls.append(run_type)
 
     elif option == 'Dot':
-        dot_type = input("Enter dot type (Bye/0): ").strip().capitalize()
-        while dot_type not in ['Bye', '0']:
-            dot_type = input("Invalid. Enter Bye or 0: ").strip().capitalize()
+        try:
+            dot_type = input_or_rollback(
+                "Enter dot type (Bye/0): ",
+                validate=lambda v: v.strip().capitalize() in ['Bye', '0']
+            ).strip().capitalize()
+            runs = 0
+            if dot_type == 'Bye':
+                bye_runs = input_or_rollback(
+                    "Enter runs for bye: ",
+                    validate=lambda v: v.isdigit()
+                ).strip()
+                runs = int(bye_runs)
+            comment = input_or_rollback("Write something or press enter to cancel: ", allow_empty=True).strip()
+        except RollbackRequested:
+            perform_rollback()
+            return
+
         if dot_type == 'Bye':
-            runs = int(input("Enter runs for bye: "))
             team.score += runs
             match.current_over_balls.append('LB')
         else:
-            runs = 0
             match.current_over_balls.append('0')
         if match.current_striker:
             match.current_striker.balls_faced += 1
         match.match_log.append(f"Ball {match.current_over+1}.{match.current_ball+1}: Dot ({dot_type})")
-        comment = input("Write something or press enter to cancel: ").strip()
         if comment:
             match.match_log.append(f"Comment: {comment}")
 
     elif option == 'Wicket':
-        wicket_type = input("Enter wicket type (Slip/Catch/Bowled/Run out): ").strip().capitalize()
-        while wicket_type not in ['Slip', 'Catch', 'Bowled', 'Run out']:
-            wicket_type = input("Invalid. Enter Slip, Catch, Bowled, or Run out: ").strip().capitalize()
+        try:
+            wicket_type = input_or_rollback(
+                "Enter wicket type (Slip/Catch/Bowled/Run out): ",
+                validate=lambda v: v.strip().capitalize() in ['Slip', 'Catch', 'Bowled', 'Run out']
+            ).strip().capitalize()
+            comment = input_or_rollback("Write something or press enter to cancel: ", allow_empty=True).strip()
+        except RollbackRequested:
+            perform_rollback()
+            return
+
         team.wickets += 1
         if match.current_bowler:
             match.current_bowler.wickets += 1
         match.match_log.append(f"Ball {match.current_over+1}.{match.current_ball+1}: Wicket ({wicket_type})")
-        comment = input("Write something or press enter to cancel: ").strip()
         if comment:
             match.match_log.append(f"Comment: {comment}")
         # Mark current striker as out
@@ -341,9 +446,13 @@ def play_ball(match):
         new_batsman = None
         if available_batsmen:
             print(f"Available batsmen: {', '.join(available_batsmen)}")
-            new_batsman = input("Enter new batsman: ").strip()
-            while new_batsman.lower() not in [p.lower() for p in available_batsmen]:
-                new_batsman = input("Invalid. Enter new batsman from available: ").strip()
+            try:
+                new_batsman = input_or_rollback("Enter new batsman: ",
+                                              validate=lambda v: v.strip().lower() in [p.lower() for p in available_batsmen])
+            except RollbackRequested:
+                perform_rollback()
+                return
+            new_batsman = new_batsman.strip()
             match.current_striker = find_player_by_name(team.players, new_batsman)
         else:
             print("All out. Innings complete.")
@@ -358,7 +467,11 @@ def play_ball(match):
             match.current_bowler.runs_conceded += extra_runs
         match.match_log.append(f"Ball {match.current_over+1}.{match.current_ball+1}: Wide")
         print(f"Extra runs for Wide: {extra_runs}")
-        comment = input("Write something or press enter to cancel: ").strip()
+        try:
+            comment = input_or_rollback("Write something or press enter to cancel: ", allow_empty=True).strip()
+        except RollbackRequested:
+            perform_rollback()
+            return
         if comment:
             match.match_log.append(f"Comment: {comment}")
         match.current_over_balls.append('WD')
@@ -370,7 +483,11 @@ def play_ball(match):
             match.current_bowler.runs_conceded += extra_runs
         match.match_log.append(f"Ball {match.current_over+1}.{match.current_ball+1}: No ball")
         print(f"Extra runs for No ball: {extra_runs}")
-        comment = input("Write something or press enter to cancel: ").strip()
+        try:
+            comment = input_or_rollback("Write something or press enter to cancel: ", allow_empty=True).strip()
+        except RollbackRequested:
+            perform_rollback()
+            return
         if comment:
             match.match_log.append(f"Comment: {comment}")
         match.current_over_balls.append('NB')
@@ -501,10 +618,14 @@ def play_ball(match):
             # Automatically change bowler after every over
             bowling_team = match.get_opposite_team()
             print_team_players(bowling_team, "bowlers")
-            bowler = input(f"Enter new bowler (from {bowling_team.name}): ").strip()
-            while bowler.lower() not in [p.lower() for p in [p.name for p in bowling_team.players]]:
-                print_team_players(bowling_team, "bowlers")
-                bowler = input(f"Invalid. Enter bowler from {bowling_team.name} players: ").strip()
+            try:
+                bowler = input_or_rollback(
+                    f"Enter new bowler (from {bowling_team.name}): ",
+                    validate=lambda v: v.strip().lower() in [p.name.lower() for p in bowling_team.players]
+                ).strip()
+            except RollbackRequested:
+                perform_rollback()
+                return
             match.current_bowler = find_player_by_name(bowling_team.players, bowler)
 
     if option not in ['Rollback', 'Add player']:

@@ -13,6 +13,11 @@ class Player:
         self.overs_bowled = 0
         self.runs_conceded = 0
         self.is_out = False
+        self.fours = 0
+        self.sixes = 0
+        self.ones = 0
+        self.dots_bowled = 0
+        self.extras = 0
 
 class Team:
     def __init__(self, name, captain, players):
@@ -71,7 +76,7 @@ class Match:
             'team_a': {
                 'name': self.team_a.name,
                 'captain': self.team_a.captain,
-                'players': [{'name': p.name, 'runs': p.runs, 'balls_faced': p.balls_faced, 'wickets': p.wickets, 'overs_bowled': p.overs_bowled, 'runs_conceded': p.runs_conceded, 'is_out': p.is_out} for p in self.team_a.players],
+                'players': [{'name': p.name, 'runs': p.runs, 'balls_faced': p.balls_faced, 'wickets': p.wickets, 'overs_bowled': p.overs_bowled, 'runs_conceded': p.runs_conceded, 'is_out': p.is_out, 'fours': p.fours, 'sixes': p.sixes, 'ones': p.ones, 'dots_bowled': p.dots_bowled, 'extras': p.extras} for p in self.team_a.players],
                 'score': self.team_a.score,
                 'wickets': self.team_a.wickets,
                 'overs': self.team_a.overs,
@@ -80,7 +85,7 @@ class Match:
             'team_b': {
                 'name': self.team_b.name,
                 'captain': self.team_b.captain,
-                'players': [{'name': p.name, 'runs': p.runs, 'balls_faced': p.balls_faced, 'wickets': p.wickets, 'overs_bowled': p.overs_bowled, 'runs_conceded': p.runs_conceded, 'is_out': p.is_out} for p in self.team_b.players],
+                'players': [{'name': p.name, 'runs': p.runs, 'balls_faced': p.balls_faced, 'wickets': p.wickets, 'overs_bowled': p.overs_bowled, 'runs_conceded': p.runs_conceded, 'is_out': p.is_out, 'fours': p.fours, 'sixes': p.sixes, 'ones': p.ones, 'dots_bowled': p.dots_bowled, 'extras': p.extras} for p in self.team_b.players],
                 'score': self.team_b.score,
                 'wickets': self.team_b.wickets,
                 'overs': self.team_b.overs,
@@ -121,6 +126,11 @@ class Match:
             p.overs_bowled = team_a_data['players'][i]['overs_bowled']
             p.runs_conceded = team_a_data['players'][i]['runs_conceded']
             p.is_out = team_a_data['players'][i].get('is_out', False)
+            p.fours = team_a_data['players'][i].get('fours', 0)
+            p.sixes = team_a_data['players'][i].get('sixes', 0)
+            p.ones = team_a_data['players'][i].get('ones', 0)
+            p.dots_bowled = team_a_data['players'][i].get('dots_bowled', 0)
+            p.extras = team_a_data['players'][i].get('extras', 0)
         team_a.score = team_a_data['score']
         team_a.wickets = team_a_data['wickets']
         team_a.overs = team_a_data['overs']
@@ -135,6 +145,11 @@ class Match:
             p.overs_bowled = team_b_data['players'][i]['overs_bowled']
             p.runs_conceded = team_b_data['players'][i]['runs_conceded']
             p.is_out = team_b_data['players'][i].get('is_out', False)
+            p.fours = team_b_data['players'][i].get('fours', 0)
+            p.sixes = team_b_data['players'][i].get('sixes', 0)
+            p.ones = team_b_data['players'][i].get('ones', 0)
+            p.dots_bowled = team_b_data['players'][i].get('dots_bowled', 0)
+            p.extras = team_b_data['players'][i].get('extras', 0)
         team_b.score = team_b_data['score']
         team_b.wickets = team_b_data['wickets']
         team_b.overs = team_b_data['overs']
@@ -353,8 +368,8 @@ def play_ball(match):
 
     try:
         option = input_or_rollback(
-            "Enter option (Run/Dot/Wicket/Wide/No ball/Rollback/Declare/Add player): ",
-            validate=lambda v: v.strip().capitalize() in ['Run', 'Dot', 'Wicket', 'Wide', 'No ball', 'Rollback', 'Declare', 'Add player']
+            "Enter option (Run/Dot/Wicket/Wide/No ball/Rollback/Declare/Add player/Scorecard): ",
+            validate=lambda v: v.strip().capitalize() in ['Run', 'Dot', 'Wicket', 'Wide', 'No ball', 'Rollback', 'Declare', 'Add player', 'Scorecard']
         ).strip().capitalize()
     except RollbackRequested:
         perform_rollback()
@@ -382,6 +397,13 @@ def play_ball(match):
         if match.current_striker:
             match.current_striker.runs += runs
             match.current_striker.balls_faced += 1
+            if run_type != 'Bye':
+                if runs == 1:
+                    match.current_striker.ones += 1
+                elif runs == 4:
+                    match.current_striker.fours += 1
+                elif runs == 6:
+                    match.current_striker.sixes += 1
         if run_type == '1':
             # Swap striker and non-striker
             match.current_striker, match.current_non_striker = match.current_non_striker, match.current_striker
@@ -417,6 +439,8 @@ def play_ball(match):
             match.current_over_balls.append('0')
         if match.current_striker:
             match.current_striker.balls_faced += 1
+        if match.current_bowler:
+            match.current_bowler.dots_bowled += 1
         match.match_log.append(f"Ball {match.current_over+1}.{match.current_ball+1}: Dot ({dot_type})")
         if comment:
             match.match_log.append(f"Comment: {comment}")
@@ -465,6 +489,7 @@ def play_ball(match):
         team.score += extra_runs
         if match.current_bowler:
             match.current_bowler.runs_conceded += extra_runs
+            match.current_bowler.extras += 1
         match.match_log.append(f"Ball {match.current_over+1}.{match.current_ball+1}: Wide")
         print(f"Extra runs for Wide: {extra_runs}")
         try:
@@ -481,6 +506,7 @@ def play_ball(match):
         team.score += extra_runs
         if match.current_bowler:
             match.current_bowler.runs_conceded += extra_runs
+            match.current_bowler.extras += 1
         match.match_log.append(f"Ball {match.current_over+1}.{match.current_ball+1}: No ball")
         print(f"Extra runs for No ball: {extra_runs}")
         try:
@@ -534,18 +560,31 @@ def play_ball(match):
             # Don't increment ball or anything
 
     elif option == 'Add player':
-        team_choice = input("Which team to add player to (A/B): ").strip().upper()
-        while team_choice not in ['A', 'B']:
-            team_choice = input("Invalid. Enter A or B: ").strip().upper()
-        
-        target_team = match.team_a if team_choice == 'A' else match.team_b
-        new_player_name = input(f"Enter new player name for {target_team.name}: ").strip()
-        while new_player_name in [p.name for p in target_team.players]:
-            new_player_name = input(f"Player already exists. Enter a different name: ").strip()
-        
-        new_player = Player(new_player_name)
-        target_team.players.append(new_player)
-        print(f"Player '{new_player_name}' added to {target_team.name}.")
+        try:
+            team_choice = input_or_rollback("Which team to add player to (A/B): ", validate=lambda v: v.strip().upper() in ['A', 'B']).strip().upper()
+            
+            target_team = match.team_a if team_choice == 'A' else match.team_b
+            new_player_name = input_or_rollback(f"Enter new player name for {target_team.name}: ").strip()
+            while new_player_name.lower() in [p.name.lower() for p in target_team.players]:
+                new_player_name = input_or_rollback(f"Player already exists. Enter a different name: ").strip()
+            
+            new_player = Player(new_player_name)
+            target_team.players.append(new_player)
+            print(f"Player '{new_player_name}' added to {target_team.name}.")
+        except RollbackRequested:
+            print("Add player cancelled.")
+
+    elif option == 'Scorecard':
+        print("=== Scorecard ===")
+        if match.current_striker:
+            sr = (match.current_striker.runs / match.current_striker.balls_faced * 100) if match.current_striker.balls_faced > 0 else 0
+            print(f"Striker: {match.current_striker.name} - Runs: {match.current_striker.runs}, Balls: {match.current_striker.balls_faced}, SR: {sr:.2f}, 1s: {match.current_striker.ones}, 4s: {match.current_striker.fours}")
+        if match.current_non_striker:
+            sr = (match.current_non_striker.runs / match.current_non_striker.balls_faced * 100) if match.current_non_striker.balls_faced > 0 else 0
+            print(f"Non-striker: {match.current_non_striker.name} - Runs: {match.current_non_striker.runs}, Balls: {match.current_non_striker.balls_faced}, SR: {sr:.2f}, 1s: {match.current_non_striker.ones}, 4s: {match.current_non_striker.fours}")
+        if match.current_bowler:
+            economy = match.current_bowler.runs_conceded / match.current_bowler.overs_bowled if match.current_bowler.overs_bowled > 0 else 0
+            print(f"Bowler: {match.current_bowler.name} - Wickets: {match.current_bowler.wickets}, Runs: {match.current_bowler.runs_conceded}, Economy: {economy:.2f}, Dots: {match.current_bowler.dots_bowled}, Extras: {match.current_bowler.extras}")
 
     elif option == 'Rollback':
         team.score -= match.last_delta['runs']
@@ -597,7 +636,7 @@ def play_ball(match):
         }
         # Don't increment for rollback
 
-    if option not in ['Wide', 'No ball', 'Rollback', 'Declare', 'Add player']:
+    if option not in ['Wide', 'No ball', 'Rollback', 'Declare', 'Add player', 'Scorecard']:
         match.current_ball += 1
         if match.current_ball == 6:
             match.current_ball = 0
@@ -628,7 +667,7 @@ def play_ball(match):
                 return
             match.current_bowler = find_player_by_name(bowling_team.players, bowler)
 
-    if option not in ['Rollback', 'Add player']:
+    if option not in ['Rollback', 'Add player', 'Scorecard']:
         # set last_delta
         last_delta = {
             'runs': 0,
@@ -742,6 +781,9 @@ def handle_test_series(match):
             p.is_out = False
             p.runs = 0
             p.balls_faced = 0
+            p.fours = 0
+            p.sixes = 0
+            p.ones = 0
 
         print_team_players(bowling, "batsmen")
         striker = input(f"Enter striker for second innings (from {bowling.name}): ").strip()
@@ -793,6 +835,9 @@ def handle_test_series(match):
             p.is_out = False
             p.runs = 0
             p.balls_faced = 0
+            p.fours = 0
+            p.sixes = 0
+            p.ones = 0
 
         match.current_over = 0
         match.current_ball = 0
@@ -845,6 +890,9 @@ def handle_test_series(match):
             p.is_out = False
             p.runs = 0
             p.balls_faced = 0
+            p.fours = 0
+            p.sixes = 0
+            p.ones = 0
 
         match.target = new_target
         match.current_over = 0
@@ -908,6 +956,11 @@ def reset_match_for_next_game(match):
             p.wickets = 0
             p.overs_bowled = 0
             p.runs_conceded = 0
+            p.fours = 0
+            p.sixes = 0
+            p.ones = 0
+            p.dots_bowled = 0
+            p.extras = 0
 
     match.current_striker = None
     match.current_non_striker = None

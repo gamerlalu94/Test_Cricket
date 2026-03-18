@@ -390,7 +390,6 @@ def play_ball(match):
                 runs = int(bye_runs)
             comment = input_or_rollback("Write something or press enter to cancel: ", allow_empty=True).strip()
         except RollbackRequested:
-            perform_rollback()
             return
 
         team.score += runs
@@ -429,7 +428,6 @@ def play_ball(match):
                 runs = int(bye_runs)
             comment = input_or_rollback("Write something or press enter to cancel: ", allow_empty=True).strip()
         except RollbackRequested:
-            perform_rollback()
             return
 
         if dot_type == 'Bye':
@@ -453,7 +451,6 @@ def play_ball(match):
             ).strip().capitalize()
             comment = input_or_rollback("Write something or press enter to cancel: ", allow_empty=True).strip()
         except RollbackRequested:
-            perform_rollback()
             return
 
         team.wickets += 1
@@ -495,7 +492,6 @@ def play_ball(match):
         try:
             comment = input_or_rollback("Write something or press enter to cancel: ", allow_empty=True).strip()
         except RollbackRequested:
-            perform_rollback()
             return
         if comment:
             match.match_log.append(f"Comment: {comment}")
@@ -512,7 +508,6 @@ def play_ball(match):
         try:
             comment = input_or_rollback("Write something or press enter to cancel: ", allow_empty=True).strip()
         except RollbackRequested:
-            perform_rollback()
             return
         if comment:
             match.match_log.append(f"Comment: {comment}")
